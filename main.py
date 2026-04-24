@@ -1,89 +1,92 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog
 import requests
 import json
 import os
 
-class GitHubUserFinder:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("GitHub User Finder")
-        self.root.geometry("400x500")
-        self.fav_file = "favorites.json"
+# Глобальные переменные
+FAVORITES_FILE = 'favorites.json'
+favorites = []
 
-        # 1. Поле ввода
-        tk.Label(root, text="Введите логин GitHub:").pack(pady=5)
-        self.entry = tk.Entry(root, width=30)
-        self.entry.pack(pady=5)
+def load_favorites():
+    global favorites
+    if os.path.exists(FAVORITES_FILE):
+        with open(FAVORITES_FILE, 'r') as f:
+            favorites = json.load(f)
+    else:
+        favorites = []
 
-        # Кнопка поиска
-        tk.Button(root, text="Найти", command=self.search_user).pack(pady=5)
+def save_favorites():
+    with open(FAVORITES_FILE, 'w') as f:
+        json.dump(favorites, f, indent=4)
 
-        # 2. Список результатов
-        tk.Label(root, text="Результаты поиска:").pack(pady=5)
-        self.results_list = tk.Listbox(root, height=5, width=40)
-        self.results_list.pack(pady=5)
+def search_user():
+    username = entry.get().strip()
+    if not username:
+        messagebox.showwarning("Ошибка", "Поле поиска не должно быть пустым.")
+        return
 
-        # 3. Добавление в избранное
-        tk.Button(root, text="Добавить в избранное", command=self.add_to_fav).pack(pady=5)
+    url = f"https://api.github.com/users/{username}"
+    response = requests.get(url)
+    if response.status_code == 200:
+        user_data = response.json()
+        display_user(user_data)
+    elif response.status_code == 404:
+        messagebox.showinfo("Результат", "Пользователь не найден.")
+    else:
+        messagebox.showerror("Ошибка", f"Ошибка API: {response.status_code}")
 
-        # Список избранных (для наглядности)
-        tk.Label(root, text="Избранные (сохранено в JSON):").pack(pady=5)
-        self.fav_listbox = tk.Listbox(root, height=10, width=40, fg="blue")
-        self.fav_listbox.pack(pady=5)
+def display_user(user_data):
+    listbox.delete(0, tk.END)
+    listbox.insert(tk.END, f"Имя: {user_data.get('name', 'N/A')}")
+    listbox.insert(tk.END, f"Логин: {user_data['login']}")
+    listbox.insert(tk.END, f"Количество подписчиков: {user_data['followers']}")
+    listbox.insert(tk.END, f"Количество репозиториев: {user_data['public_repos']}")
+    listbox.insert(tk.END, f"URL: {user_data['html_url']}")
 
-        self.load_fav_from_json()
+    # Добавить кнопку "Добавить в избранное"
+    add_fav_button.config(state=tk.NORMAL)
+    add_fav_button.user_data = user_data
 
-    def search_user(self):
-        username = self.entry.get().strip()
-        
-        # 5. Проверка корректности ввода
-        if not username:
-            messagebox.showerror("Ошибка", "Поле поиска не должно быть пустым!")
-            return
+def add_to_favorites():
+    user_data = add_fav_button.user_data
+    # Проверить, есть ли пользователь в избранных
+    if any(u['login'] == user_data['login'] for u in favorites):
+        messagebox.showinfo("Информация", "Этот пользователь уже в избранных.")
+        return
+    favorites.append(user_data)
+    save_favorites()
+    messagebox.showinfo("Успех", "Пользователь добавлен в избранные!")
 
-        self.results_list.delete(0, tk.END)
-        try:
-            response = requests.get(f"https://github.com{username}")
-            if response.status_code == 200:
-                data = response.json()
-                # Отображаем в списке (Пункт 2)
-                self.results_list.insert(tk.END, data['login'])
-                self.last_found = data['login']
-            else:
-                messagebox.showwarning("Внимание", "Пользователь не найден")
-        except Exception as e:
-            messagebox.showerror("Ошибка сети", str(e))
+def show_favorites():
+    fav_window = tk.Toplevel(root)
+    fav_window.title("Избранные пользователи")
+    listbox_fav = tk.Listbox(fav_window, width=50)
+    listbox_fav.pack(padx=10, pady=10)
+    for user in favorites:
+        listbox_fav.insert(tk.END, f"{user['login']} ({user.get('name', 'N/A')})")
 
-    def add_to_fav(self):
-        selection = self.results_list.curselection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Сначала найдите и выберите пользователя!")
-            return
+# Инициализация
+root = tk.Tk()
+root.title("GitHub User Finder")
 
-        user = self.results_list.get(selection[0])
-        
-        # 4. Сохранение в JSON
-        favs = self.get_favs()
-        if user not in favs:
-            favs.append(user)
-            with open(self.fav_file, "w") as f:
-                json.dump(favs, f)
-            self.load_fav_from_json()
-            messagebox.showinfo("Успех", f"{user} добавлен в избранное")
+load_favorites()
 
-    def get_favs(self):
-        if not os.path.exists(self.fav_file):
-            return []
-        with open(self.fav_file, "r") as f:
-            return json.load(f)
+# Элементы интерфейса
+tk.Label(root, text="Введите логин GitHub:").pack(pady=5)
+entry = tk.Entry(root, width=40)
+entry.pack()
 
-    def load_fav_from_json(self):
-        self.fav_listbox.delete(0, tk.END)
-        for user in self.get_favs():
-            self.fav_listbox.insert(tk.END, user)
+search_button = tk.Button(root, text="Поиск", command=search_user)
+search_button.pack(pady=5)
 
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = GitHubUserFinder(root)
-    root.mainloop()
+listbox = tk.Listbox(root, width=50, height=6)
+listbox.pack(padx=10, pady=10)
+
+add_fav_button = tk.Button(root, text="Добавить в избранное", state=tk.DISABLED, command=add_to_favorites)
+add_fav_button.pack(pady=5)
+
+show_favorites_button = tk.Button(root, text="Показать избранных", command=show_favorites)
+show_favorites_button.pack(pady=5)
+
+root.mainloop()
